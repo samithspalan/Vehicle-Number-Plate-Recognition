@@ -22,6 +22,12 @@ def detect_plate(image_path):
     from collections import Counter
     results = []
     
+    # For small images, scale up first
+    h, w = img.shape[:2]
+    if w < 300 or h < 300:
+        scale_factor = max(3, 400 // min(w, h))
+        img = cv2.resize(img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_CUBIC)
+    
     # Try multiple image sizes
     for width in [300, 400, 500, 600, 800]:
         img_resized = imutils.resize(img, width=width)
@@ -82,6 +88,17 @@ def detect_plate(image_path):
                     if has_letter and has_digit:
                         results.append(text)
                 break
+        
+        # Method 3: Region-based OCR (for difficult cases)
+        for top_pct in [0.3, 0.4, 0.5]:
+            for bottom_pct in [0.7, 0.8]:
+                region = gray[int(gray.shape[0]*top_pct):int(gray.shape[0]*bottom_pct), :]
+                _, thresh = cv2.threshold(region, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                
+                text = pytesseract.image_to_string(thresh, config='--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
+                text = ''.join(c for c in text if c.isalnum()).upper()
+                if 8 <= len(text) <= 12 and any(c.isalpha() for c in text) and any(c.isdigit() for c in text):
+                    results.append(text)
     
     # Return most common result
     if results:
