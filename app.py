@@ -5,6 +5,7 @@ import pandas as pd
 import imutils
 import numpy as np
 import os
+import re
 
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -13,6 +14,19 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 
 app = Flask(__name__)
+
+def is_valid_plate_format(text):
+    """Check if text looks like a valid Indian plate (2 letters + digits + letters + digits)"""
+    if len(text) < 8 or len(text) > 12:
+        return False
+    if not any(c.isalpha() for c in text) or not any(c.isdigit() for c in text):
+        return False
+    # More likely valid if starts with letters (state code)
+    if text[:2].isalpha():
+        return True
+    # Accept if has good mix of letters/digits
+    letters = sum(1 for c in text if c.isalpha())
+    return letters >= 2 and letters <= 6
 
 def detect_plate(image_path):
     img = cv2.imread(image_path)
@@ -29,7 +43,7 @@ def detect_plate(image_path):
         img = cv2.resize(img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_CUBIC)
     
     # Try multiple image sizes
-    for width in [300, 400, 500, 600, 800]:
+    for width in [300, 400, 500, 600]:
         img_resized = imutils.resize(img, width=width)
         original = img_resized.copy()
         gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
@@ -37,13 +51,20 @@ def detect_plate(image_path):
         # Method 1: MSER-based detection (most reliable)
         try:
             mser = cv2.MSER_create()
+            mser.setMinArea(60)
+            mser.setMaxArea(6000)
             regions, _ = mser.detectRegions(gray)
             
+            # Limit regions to check
+            region_count = 0
             for region in regions:
+                if region_count > 50:  # Limit for speed
+                    break
                 x, y, w, h = cv2.boundingRect(region.reshape(-1, 1, 2))
                 aspect = w / float(h) if h > 0 else 0
                 
-                if 2 <= aspect <= 6 and 40 < w < width * 0.8 and h > 10:
+                if 1.5 <= aspect <= 7 and 30 < w < width * 0.85 and h > 8:
+                    region_count += 1
                     pad = 5
                     y1, y2 = max(0, y-pad), min(gray.shape[0], y+h+pad)
                     x1, x2 = max(0, x-pad), min(gray.shape[1], x+w+pad)
@@ -56,11 +77,8 @@ def detect_plate(image_path):
                         text = pytesseract.image_to_string(thresh, config='--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
                         text = ''.join(c for c in text if c.isalnum()).upper()
                         
-                        if len(text) >= 8 and len(text) <= 12:
-                            has_letter = any(c.isalpha() for c in text)
-                            has_digit = any(c.isdigit() for c in text)
-                            if has_letter and has_digit:
-                                results.append(text)
+                        if is_valid_plate_format(text):
+                            results.append(text)
         except:
             pass
         
@@ -68,7 +86,7 @@ def detect_plate(image_path):
         blur = cv2.bilateralFilter(gray, 11, 17, 17)
         edged = cv2.Canny(blur, 170, 200)
         cnts, _ = cv2.findContours(edged.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:30]
+        cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:15]
         
         for c in cnts:
             peri = cv2.arcLength(c, True)
@@ -82,23 +100,36 @@ def detect_plate(image_path):
                 text = pytesseract.image_to_string(new_img, config=config)
                 text = ''.join(c for c in text if c.isalnum()).upper()
                 
-                if len(text) >= 8 and len(text) <= 12:
-                    has_letter = any(c.isalpha() for c in text)
-                    has_digit = any(c.isdigit() for c in text)
-                    if has_letter and has_digit:
-                        results.append(text)
+                if is_valid_plate_format(text):
+                    results.append(text)
                 break
-        
-        # Method 3: Region-based OCR (for difficult cases)
-        for top_pct in [0.3, 0.4, 0.5]:
-            for bottom_pct in [0.7, 0.8]:
-                region = gray[int(gray.shape[0]*top_pct):int(gray.shape[0]*bottom_pct), :]
+    
+    # Method 3: Region-based OCR only if no results yet
+    if not results:
+        for width in [400, 500, 600]:
+            img_resized = imutils.resize(img, width=width)
+            gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
+            
+            # Try different vertical positions
+            for y_start, y_end in [(0.3, 0.7), (0.4, 0.8), (0.35, 0.75), (0.45, 0.85)]:
+                region = gray[int(gray.shape[0]*y_start):int(gray.shape[0]*y_end), :]
                 _, thresh = cv2.threshold(region, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
                 
                 text = pytesseract.image_to_string(thresh, config='--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
                 text = ''.join(c for c in text if c.isalnum()).upper()
-                if 8 <= len(text) <= 12 and any(c.isalpha() for c in text) and any(c.isdigit() for c in text):
+                if is_valid_plate_format(text):
                     results.append(text)
+    
+    # Method 4: Scaled full image (for edge cases)
+    if not results:
+        scaled = cv2.resize(img, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
+        gray = cv2.cvtColor(scaled, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        text = pytesseract.image_to_string(thresh, config='--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
+        for word in text.split():
+            word = ''.join(c for c in word if c.isalnum()).upper()[:12]  # Trim to max 12 chars
+            if is_valid_plate_format(word):
+                results.append(word)
     
     # Return most common result
     if results:
