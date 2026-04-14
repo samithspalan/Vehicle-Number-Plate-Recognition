@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask_cors import CORS
 import cv2
 import pytesseract
 import pandas as pd
@@ -14,6 +15,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
+@app.route("/health")
+def health():
+    return jsonify({"message": "Vehicle Recognition API is running"}), 200
 
 def is_valid_plate_format(text):
     """Check if text looks like a valid Indian plate (2 letters + digits + letters + digits)"""
@@ -222,6 +228,44 @@ def find_best_match(detected, plates):
             best_plate = plate
     
     return best_plate if best_plate else detected
+
+@app.route("/api/recognize", methods=["POST"])
+def api_recognize():
+    if "image" not in request.files:
+        return jsonify({"error": "No image uploaded"}), 400
+
+    file = request.files["image"]
+    if file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
+
+    path = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(path)
+
+    plate = detect_plate(path)
+    owner = "Unknown"
+    vehicle = "Unknown"
+    city = "Unknown"
+
+    csv_path = os.path.join(BASE_DIR, "vehicle_data.csv")
+    if os.path.exists(csv_path):
+        data = pd.read_csv(csv_path)
+        known_plates = data["number"].tolist()
+        matched_plate = find_best_match(plate, known_plates)
+        
+        match = data[data["number"] == matched_plate]
+        if not match.empty:
+            plate = matched_plate
+            owner = match.iloc[0]["owner"]
+            vehicle = match.iloc[0]["vehicle"]
+            city = match.iloc[0]["city"]
+
+    return jsonify({
+        "plate": plate,
+        "owner": owner,
+        "vehicle": vehicle,
+        "city": city,
+        "status": "success"
+    })
 
 @app.route("/", methods=["GET","POST"])
 def index():
