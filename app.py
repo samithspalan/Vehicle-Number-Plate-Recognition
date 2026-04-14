@@ -7,15 +7,66 @@ import imutils
 import numpy as np
 import os
 import re
+from datetime import datetime
+import json
 
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # Get the directory where app.py is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
+LOGS_FILE = os.path.join(BASE_DIR, "security_logs.csv")
+CONFIG_FILE = os.path.join(BASE_DIR, "system_config.json")
+
+# Initialize and Load Logs
+if not os.path.exists(LOGS_FILE):
+    pd.DataFrame(columns=["timestamp", "plate", "owner", "status", "method"]).to_csv(LOGS_FILE, index=False)
+
+def log_entry(plate, owner, status, method="AI"):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    new_log = pd.DataFrame([[timestamp, plate, owner, status, method]], 
+                           columns=["timestamp", "plate", "owner", "status", "method"])
+    new_log.to_csv(LOGS_FILE, mode='a', header=False, index=False)
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
+
+@app.route("/api/logs", methods=["GET"])
+def get_logs():
+    if os.path.exists(LOGS_FILE):
+        try:
+            data = pd.read_csv(LOGS_FILE)
+            data = data.fillna("N/A")
+            logs = data.tail(50).to_dict(orient="records")
+            return jsonify(logs[::-1])
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return jsonify([])
+
+@app.route("/api/config", methods=["GET", "POST"])
+def manage_config():
+    default_config = {
+        "confidence_threshold": 85,
+        "gate_delay": 5,
+        "auto_approve": True,
+        "security_level": "Strict"
+    }
+    
+    if request.method == "POST":
+        new_config = request.json
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(new_config, f)
+        return jsonify({"message": "Configuration updated"})
+    
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r") as f:
+            return jsonify(json.load(f))
+    return jsonify(default_config)
+
+@app.route("/api/override", methods=["POST"])
+def api_override():
+    log_entry("MANUAL_OVERRIDE", "System Admin", "success", "Manual")
+    return jsonify({"status": "success"})
 
 @app.route("/health")
 def health():
@@ -247,6 +298,7 @@ def api_recognize():
     city = "Unknown"
 
     csv_path = os.path.join(BASE_DIR, "vehicle_data.csv")
+    status = "denied"
     if os.path.exists(csv_path):
         data = pd.read_csv(csv_path)
         known_plates = data["number"].tolist()
@@ -259,8 +311,8 @@ def api_recognize():
             vehicle = match.iloc[0]["vehicle"]
             city = match.iloc[0]["city"]
             status = "success"
-        else:
-            status = "denied"
+    
+    log_entry(plate or "NOT_FOUND", owner, "success" if status == "success" else "denied", "AI")
 
     return jsonify({
         "plate": plate,

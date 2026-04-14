@@ -44,7 +44,47 @@ const App = () => {
   const [residents, setResidents] = useState([]);
   const [loadingResidents, setLoadingResidents] = useState(false);
   const [newResident, setNewResident] = useState({ number: "", owner: "", vehicle: "", city: "" });
+  const [logs, setLogs] = useState([]);
+  const [config, setConfig] = useState({
+    confidence_threshold: 85,
+    gate_delay: 5,
+    auto_approve: true,
+    security_level: "Strict"
+  });
   const { user } = useClerk();
+
+  const fetchLogs = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/logs`);
+      const data = await response.json();
+      setLogs(data);
+    } catch (err) {
+      console.error("Failed to fetch logs", err);
+    }
+  };
+
+  const fetchConfig = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/config`);
+      const data = await response.json();
+      setConfig(data);
+    } catch (err) {
+      console.error("Failed to fetch config", err);
+    }
+  };
+
+  const updateConfig = async (newConfig) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newConfig),
+      });
+      setConfig(newConfig);
+    } catch (err) {
+      console.error("Failed to update config", err);
+    }
+  };
 
   const scanSteps = [
     "Initializing OCR Engine...",
@@ -58,7 +98,7 @@ const App = () => {
     let interval;
     if (scanning) {
       interval = setInterval(() => {
-        setScanStep((prev) => (prev + 1) % scanSteps.length);
+        setScanStep((prev) => (prev + 1) % 5); // 5 is the length of scanSteps
       }, 1000);
     } else {
       setScanStep(0);
@@ -91,6 +131,10 @@ const App = () => {
   useEffect(() => {
     if (activeTab === "residents") {
       fetchResidents();
+    } else if (activeTab === "logs") {
+      fetchLogs();
+    } else if (activeTab === "settings") {
+      fetchConfig();
     }
   }, [activeTab]);
 
@@ -112,6 +156,18 @@ const App = () => {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleManualOverride = () => {
+    setScanning(false);
+    setScanStep(0);
+    setResult({
+      status: "success",
+      plate: "MANUAL_OVERRIDE",
+      owner: "System Admin",
+      method: "Manual"
+    });
+    setPreview(null);
   };
 
   const handleUpload = async (e) => {
@@ -211,8 +267,12 @@ const App = () => {
                           Capture Vehicle
                           <input type="file" onChange={handleUpload} hidden accept="image/*" />
                         </motion.label>
-                        <button className="btn-secondary" style={{ flex: 1, display: "flex", gap: "0.5rem", justifyContent: "center" }}>
-                          <Upload size={20} />
+                        <button 
+                          className="btn-secondary" 
+                          style={{ flex: 1, display: "flex", gap: "0.5rem", justifyContent: "center" }}
+                          onClick={handleManualOverride}
+                        >
+                          <Zap size={20} />
                           Manual Override
                         </button>
                       </div>
@@ -223,43 +283,43 @@ const App = () => {
                         <h2 style={{ marginBottom: "2rem", fontSize: "1.25rem" }}>Entry Verification</h2>
                         
                         {scanning ? (
-                          <div style={{ padding: "1rem 0" }}>
-                            <div className="pipeline-container">
+                          <div style={{ padding: "0.5rem 0" }}>
+                            <div className="pipeline-container" style={{ margin: 0 }}>
                               <div className={`pipeline-step ${scanStep === 0 ? "active" : ""}`}>
                                 <div className="step-icon">
-                                  {scanStep === 0 ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                                  {scanStep === 0 ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                                 </div>
                                 <div className="step-content"><h4>Loading Image</h4></div>
                               </div>
-                              <div className="step-arrow"><ChevronDown size={14} /></div>
+                              <div className="step-arrow"><ChevronDown size={12} /></div>
 
                               <div className={`pipeline-step ${scanStep === 1 ? "active" : ""}`}>
                                 <div className="step-icon">
-                                  {scanStep === 1 ? <Loader2 size={16} className="animate-spin" /> : <Sliders size={16} />}
+                                  {scanStep === 1 ? <Loader2 size={14} className="animate-spin" /> : <Sliders size={14} />}
                                 </div>
                                 <div className="step-content"><h4>Image Processing</h4></div>
                               </div>
-                              <div className="step-arrow"><ChevronDown size={14} /></div>
+                              <div className="step-arrow"><ChevronDown size={12} /></div>
 
                               <div className={`pipeline-step ${scanStep === 2 ? "active" : ""}`}>
                                 <div className="step-icon">
-                                  {scanStep === 2 ? <Loader2 size={16} className="animate-spin" /> : <Crop size={16} />}
+                                  {scanStep === 2 ? <Loader2 size={14} className="animate-spin" /> : <Crop size={14} />}
                                 </div>
                                 <div className="step-content"><h4>Plate Detection</h4></div>
                               </div>
-                              <div className="step-arrow"><ChevronDown size={14} /></div>
+                              <div className="step-arrow"><ChevronDown size={12} /></div>
 
                               <div className={`pipeline-step ${scanStep === 3 ? "active" : ""}`}>
                                 <div className="step-icon">
-                                  {scanStep === 3 ? <Loader2 size={16} className="animate-spin" /> : <Type size={16} />}
+                                  {scanStep === 3 ? <Loader2 size={14} className="animate-spin" /> : <Type size={14} />}
                                 </div>
                                 <div className="step-content"><h4>OCR Extraction</h4></div>
                               </div>
-                              <div className="step-arrow"><ChevronDown size={14} /></div>
+                              <div className="step-arrow"><ChevronDown size={12} /></div>
 
                               <div className={`pipeline-step ${scanStep === 4 ? "active" : ""}`}>
                                 <div className="step-icon">
-                                  {scanStep === 4 ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} />}
+                                  {scanStep === 4 ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}
                                 </div>
                                 <div className="step-content"><h4>Database Match</h4></div>
                               </div>
@@ -268,9 +328,9 @@ const App = () => {
                             <motion.div 
                               initial={{ opacity: 0 }}
                               animate={{ opacity: 1 }}
-                              style={{ textAlign: "center", marginTop: "1.5rem", color: "var(--primary)", fontWeight: 700 }}
+                              style={{ textAlign: "center", marginTop: "1rem", color: "var(--primary)", fontWeight: 700, fontSize: "0.8rem" }}
                             >
-                              {scanStep === 4 ? "SEARCHING REGISTRY..." : "AI PROCESSING..."}
+                              {scanSteps[scanStep]}
                             </motion.div>
                           </div>
                         ) : result ? (
@@ -300,6 +360,102 @@ const App = () => {
                             <p>Awaiting vehicle detection in primary gate zone.</p>
                           </div>
                         )}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ) : activeTab === "logs" ? (
+                <motion.div key="logs" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                  <h1 style={{ fontSize: "2.5rem", fontWeight: 800, marginBottom: "0.5rem" }}>Security Logs</h1>
+                  <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>Comprehensive Audit Trail of Vehicle Entries</p>
+                  <div className="bento-card">
+                    <table className="glass-table">
+                      <thead>
+                        <tr>
+                          <th>Timestamp</th>
+                          <th>Plate Number</th>
+                          <th>Owner/Resident</th>
+                          <th>Status</th>
+                          <th>Method</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {logs.length > 0 ? (
+                          logs.map((log, i) => (
+                            <tr key={i}>
+                              <td style={{ fontSize: "0.85rem", opacity: 0.7 }}>{log.timestamp}</td>
+                              <td style={{ fontWeight: 700, color: "var(--primary)" }}>{log.plate}</td>
+                              <td>{log.owner}</td>
+                              <td>
+                                <span className={log.status === "success" ? "verified-badge" : "denied-badge"}>
+                                  {log.status === "success" ? "GRANTED" : "DENIED"}
+                                </span>
+                              </td>
+                              <td style={{ textTransform: "uppercase", fontSize: "0.75rem", fontWeight: 600 }}>{log.method}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr><td colSpan="5" style={{ textAlign: "center", padding: "3rem" }}>No entry logs available.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </motion.div>
+              ) : activeTab === "settings" ? (
+                <motion.div key="settings" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                  <h1 style={{ fontSize: "2.5rem", fontWeight: 800, marginBottom: "0.5rem" }}>System Config</h1>
+                  <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>Fine-tune AI Analysis and Hardware Parameters</p>
+                  
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2rem" }}>
+                    <div className="bento-card">
+                      <h3 style={{ marginBottom: "2rem" }}>AI Parameters</h3>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                        <div>
+                          <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Confidence Threshold (%)</label>
+                          <input 
+                            type="range" 
+                            min="50" 
+                            max="100" 
+                            value={config.confidence_threshold} 
+                            onChange={(e) => updateConfig({...config, confidence_threshold: parseInt(e.target.value)})}
+                            className="glass-slider"
+                          />
+                          <div style={{ textAlign: "right", fontSize: "0.8rem", color: "var(--primary)" }}>{config.confidence_threshold}%</div>
+                        </div>
+                        <div>
+                          <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Gate Opening Delay (s)</label>
+                          <input 
+                            type="number" 
+                            value={config.gate_delay}
+                            onChange={(e) => updateConfig({...config, gate_delay: parseInt(e.target.value)})}
+                            className="glass-input"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bento-card">
+                      <h3 style={{ marginBottom: "2rem" }}>Security Logic</h3>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span>Auto-Approve Known Residents</span>
+                          <button 
+                            className={`toggle-switch ${config.auto_approve ? "on" : "off"}`}
+                            onClick={() => updateConfig({...config, auto_approve: !config.auto_approve})}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Registry Security Level</label>
+                          <select 
+                            className="glass-input"
+                            value={config.security_level}
+                            onChange={(e) => updateConfig({...config, security_level: e.target.value})}
+                          >
+                            <option>Standard</option>
+                            <option>Strict</option>
+                            <option>High Alert</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
                   </div>
