@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   SignedIn, 
   SignedOut, 
@@ -21,18 +21,98 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  Sun,
+  Moon,
+  ChevronDown,
+  Sliders,
+  Crop,
+  Type
 } from "lucide-react";
+
 import "./App.css";
 
 const API_BASE_URL = "http://localhost:5000";
 
 const App = () => {
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
   const [scanning, setScanning] = useState(false);
+  const [scanStep, setScanStep] = useState(0);
   const [result, setResult] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [residents, setResidents] = useState([]);
+  const [loadingResidents, setLoadingResidents] = useState(false);
+  const [newResident, setNewResident] = useState({ number: "", owner: "", vehicle: "", city: "" });
   const { user } = useClerk();
+
+  const scanSteps = [
+    "Initializing OCR Engine...",
+    "Isolating Plate Region...",
+    "Extracting Alphanumerics...",
+    "Matching Database Records...",
+    "Finalizing Verification..."
+  ];
+
+  useEffect(() => {
+    let interval;
+    if (scanning) {
+      interval = setInterval(() => {
+        setScanStep((prev) => (prev + 1) % scanSteps.length);
+      }, 1000);
+    } else {
+      setScanStep(0);
+    }
+    return () => clearInterval(interval);
+  }, [scanning]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === "dark" ? "light" : "dark");
+  };
+
+  const fetchResidents = async () => {
+    setLoadingResidents(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/residents`);
+      const data = await response.json();
+      setResidents(data);
+    } catch (err) {
+      console.error("Failed to fetch residents", err);
+    } finally {
+      setLoadingResidents(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "residents") {
+      fetchResidents();
+    }
+  }, [activeTab]);
+
+  const handleAddResident = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/residents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newResident),
+      });
+      if (response.ok) {
+        setNewResident({ number: "", owner: "", vehicle: "", city: "" });
+        fetchResidents();
+      } else {
+        const err = await response.json();
+        alert(err.error || "Failed to add resident");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const handleUpload = async (e) => {
     const file = e.target.files[0];
@@ -42,7 +122,7 @@ const App = () => {
     setScanning(true);
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("image", file); // Changed from 'file' to 'image' to match backend
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/recognize`, {
@@ -62,13 +142,19 @@ const App = () => {
     <div className="app-wrapper">
       <div className="glow-orb" />
       
+      <div className="theme-toggle-container">
+        <button className="theme-toggle-btn" onClick={toggleTheme}>
+          {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
+        </button>
+      </div>
+
       <SignedOut>
         <LandingPage />
       </SignedOut>
 
       <SignedIn>
         <div className="dashboard-layout">
-          <aside className="glass-sidebar">
+<aside className="glass-sidebar" style={{ background: "var(--sidebar-bg)" }}>
             <div className="sidebar-brand" style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontSize: "1.25rem", fontWeight: 800 }}>
               <ShieldCheck size={32} color="#3b82f6" />
               <span>SmartGate Pro</span>
@@ -93,15 +179,26 @@ const App = () => {
           <main className="main-viewport">
             <AnimatePresence mode="wait">
               {activeTab === "dashboard" ? (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                <motion.div key="dashboard" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 400px", gap: "2rem" }}>
                     <div>
                       <h1 style={{ fontSize: "2.5rem", fontWeight: 800, marginBottom: "0.5rem" }}>Live Terminal</h1>
                       <p style={{ color: "var(--text-muted)", marginBottom: "3rem" }}>Zero-Gravity Security Interface Activation</p>
                       
-                      <div className="live-preview-box" style={{ background: preview ? `url(${preview}) center/cover` : "#000" }}>
+                      <div className="live-preview-box" style={{ background: preview ? `url(${preview}) center/cover` : "var(--card-bg)" }}>
                         {scanning && (
-                          <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="scanner-overlay" />
+                          <>
+                            <motion.div 
+                              className="scanning-ray"
+                              animate={{ top: ["0%", "100%", "0%"] }}
+                              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                            />
+                            <motion.div 
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 0.3 }}
+                              className="scanner-overlay" 
+                            />
+                          </>
                         )}
                         <div className="scanning-text">
                           {scanning ? "MATCHING DATABASE..." : "SYSTEM READY"}
@@ -126,9 +223,55 @@ const App = () => {
                         <h2 style={{ marginBottom: "2rem", fontSize: "1.25rem" }}>Entry Verification</h2>
                         
                         {scanning ? (
-                          <div style={{ textAlign: "center", padding: "4rem 0" }}>
-                            <Loader2 size={48} className="animate-spin" style={{ color: "var(--primary)", margin: "0 auto 1.5rem" }} />
-                            <p>Analyzing Vehicle Data...</p>
+                          <div style={{ padding: "1rem 0" }}>
+                            <div className="pipeline-container">
+                              <div className={`pipeline-step ${scanStep === 0 ? "active" : ""}`}>
+                                <div className="step-icon">
+                                  {scanStep === 0 ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                                </div>
+                                <div className="step-content"><h4>Loading Image</h4></div>
+                              </div>
+                              <div className="step-arrow"><ChevronDown size={14} /></div>
+
+                              <div className={`pipeline-step ${scanStep === 1 ? "active" : ""}`}>
+                                <div className="step-icon">
+                                  {scanStep === 1 ? <Loader2 size={16} className="animate-spin" /> : <Sliders size={16} />}
+                                </div>
+                                <div className="step-content"><h4>Image Processing</h4></div>
+                              </div>
+                              <div className="step-arrow"><ChevronDown size={14} /></div>
+
+                              <div className={`pipeline-step ${scanStep === 2 ? "active" : ""}`}>
+                                <div className="step-icon">
+                                  {scanStep === 2 ? <Loader2 size={16} className="animate-spin" /> : <Crop size={16} />}
+                                </div>
+                                <div className="step-content"><h4>Plate Detection</h4></div>
+                              </div>
+                              <div className="step-arrow"><ChevronDown size={14} /></div>
+
+                              <div className={`pipeline-step ${scanStep === 3 ? "active" : ""}`}>
+                                <div className="step-icon">
+                                  {scanStep === 3 ? <Loader2 size={16} className="animate-spin" /> : <Type size={16} />}
+                                </div>
+                                <div className="step-content"><h4>OCR Extraction</h4></div>
+                              </div>
+                              <div className="step-arrow"><ChevronDown size={14} /></div>
+
+                              <div className={`pipeline-step ${scanStep === 4 ? "active" : ""}`}>
+                                <div className="step-icon">
+                                  {scanStep === 4 ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} />}
+                                </div>
+                                <div className="step-content"><h4>Database Match</h4></div>
+                              </div>
+                            </div>
+                            
+                            <motion.div 
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              style={{ textAlign: "center", marginTop: "1.5rem", color: "var(--primary)", fontWeight: 700 }}
+                            >
+                              {scanStep === 4 ? "SEARCHING REGISTRY..." : "AI PROCESSING..."}
+                            </motion.div>
                           </div>
                         ) : result ? (
                           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -142,8 +285,8 @@ const App = () => {
                             </div>
                             
                             <div className="vehicle-details" style={{ background: "rgba(0,0,0,0.3)", border: "none" }}>
-                                <DetailRow label="LICENSE PLATE" value={result.plate_number} />
-                                <DetailRow label="RESIDENT MATCH" value={result.owner_details?.Owner || "N/A"} />
+                                <DetailRow label="LICENSE PLATE" value={result.plate || "Unknown"} />
+                                <DetailRow label="RESIDENT MATCH" value={result.owner || "N/A"} />
                                 <DetailRow label="STATUS" value={result.status === "success" ? "VALIDATED" : "FLAGGED"} isSuccess={result.status === "success"} />
                             </div>
                             
@@ -159,6 +302,77 @@ const App = () => {
                         )}
                       </div>
                     </div>
+                  </div>
+                </motion.div>
+              ) : activeTab === "residents" ? (
+                <motion.div key="residents" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                  <h1 style={{ fontSize: "2.5rem", fontWeight: 800, marginBottom: "0.5rem" }}>Resident Management</h1>
+                  <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>Centralized Vehicle Registration Hub</p>
+
+                  <div className="bento-card" style={{ marginBottom: "2rem" }}>
+                    <h3 style={{ marginTop: 0 }}>Register New Vehicle</h3>
+                    <form onSubmit={handleAddResident} style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr) auto", gap: "1rem", marginTop: "1.5rem" }}>
+                      <input 
+                        className="glass-input" 
+                        placeholder="Plate Number" 
+                        value={newResident.number} 
+                        onChange={e => setNewResident({...newResident, number: e.target.value.toUpperCase()})}
+                        required
+                      />
+                      <input 
+                        className="glass-input" 
+                        placeholder="Owner Name" 
+                        value={newResident.owner} 
+                        onChange={e => setNewResident({...newResident, owner: e.target.value})}
+                        required
+                      />
+                      <input 
+                        className="glass-input" 
+                        placeholder="Vehicle" 
+                        value={newResident.vehicle} 
+                        onChange={e => setNewResident({...newResident, vehicle: e.target.value})}
+                        required
+                      />
+                      <input 
+                        className="glass-input" 
+                        placeholder="City" 
+                        value={newResident.city} 
+                        onChange={e => setNewResident({...newResident, city: e.target.value})}
+                        required
+                      />
+                      <button type="submit" className="btn-glow" style={{ padding: "0 1.5rem" }}>Add Resident</button>
+                    </form>
+                  </div>
+
+                  <div className="bento-card">
+                    <table className="glass-table">
+                      <thead>
+                        <tr>
+                          <th>Plate Number</th>
+                          <th>Resident Name</th>
+                          <th>Vehicle Model</th>
+                          <th>Region</th>
+                          <th>Access Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loadingResidents ? (
+                          <tr><td colSpan="5" style={{ textAlign: "center", padding: "3rem" }}>Loading system data...</td></tr>
+                        ) : residents.length > 0 ? (
+                          residents.map((res, i) => (
+                            <tr key={i}>
+                              <td style={{ fontWeight: 700, color: "var(--primary)" }}>{res.number}</td>
+                              <td>{res.owner}</td>
+                              <td>{res.vehicle}</td>
+                              <td>{res.city}</td>
+                              <td><span className="verified-badge">ACTIVE</span></td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr><td colSpan="5" style={{ textAlign: "center", padding: "3rem" }}>No residents found in database.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </motion.div>
               ) : (
@@ -206,7 +420,6 @@ const LandingPage = () => (
           Administrator Login
         </motion.button>
       </SignInButton>
-      <button className="btn-secondary">View Residents</button>
     </motion.div>
 
     <div className="bento-grid">
@@ -215,24 +428,60 @@ const LandingPage = () => (
         title="OCR Deep Learning" 
         desc="Powered by Tesseract OCR and OpenCV to detect and read Indian vehicle plates with high precision." 
         large 
+        variant="blue"
       />
       <BentoCard 
         icon={<Zap color="#fbbf24"/>} 
         title="Instant Verification" 
         desc="Real-time matching against your resident database to grant or deny access in seconds." 
+        variant="amber"
       />
       <BentoCard 
         icon={<Database color="#ae7aff"/>} 
         title="Vehicle Database" 
         desc="Easily manage authorized vehicles, residents, and flat numbers through a centralized portal."
+        variant="purple"
       />
       <BentoCard 
         icon={<ShieldCheck color="#10b981"/>} 
         title="Security Audit" 
         desc="Logs every vehicle entry/exit with timestamps and plate captures for complete facility oversight."
-        large
+        variant="green"
+      />
+      <BentoCard 
+        icon={<History color="#ff4d4d"/>} 
+        title="Response History" 
+        desc="Detailed analysis of entry trends and manual interventions for better site planning."
+        variant="red"
+      />
+      <BentoCard 
+        icon={<Settings color="#00d4ff"/>} 
+        title="Admin Controls" 
+        desc="Full control over user permissions, system updates, and automated gate scheduling."
+        variant="cyan"
       />
     </div>
+
+    <footer className="landing-footer">
+      <div className="footer-line"></div>
+      <div className="footer-content">
+        <div className="footer-brand">
+          <ShieldCheck size={24} color="#3b82f6" />
+          <span>SmartGate AI</span>
+        </div>
+        <p className="footer-tagline">Advanced Autonomous Perimeter Security Ecosystem.</p>
+        <div className="footer-links">
+          <span>Documentation</span>
+          <span>Security Portal</span>
+          <span>System Status</span>
+        </div>
+        <div className="footer-credits">
+          <span className="credit-label">Engineered by</span>
+          <span className="credit-names">Samith & Koushik</span>
+        </div>
+        <p className="footer-copyright">© 2026 SmartGate Systems. All rights reserved.</p>
+      </div>
+    </footer>
   </motion.div>
 );
 
@@ -242,11 +491,16 @@ const NavItem = ({ active, onClick, icon, label }) => (
   </div>
 );
 
-const BentoCard = ({ icon, title, desc, large }) => (
-  <motion.div whileHover={{ y: -5 }} className={`bento-card ${large ? "bento-large" : ""}`}>
-    {icon}
-    <h3>{title}</h3>
-    <p>{desc}</p>
+const BentoCard = ({ icon, title, desc, large, variant }) => (
+  <motion.div 
+    whileHover={{ y: -5 }} 
+    className={`bento-card ${large ? "bento-large" : ""} border-anim-${variant || "blue"}`}
+  >
+    <div className="bento-content">
+      {icon}
+      <h3>{title}</h3>
+      <p>{desc}</p>
+    </div>
   </motion.div>
 );
 

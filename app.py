@@ -271,6 +271,42 @@ def api_recognize():
         "message": "ACCESS GRANTED - OPENING GATE" if status == "success" else "ACCESS DENIED - MANUAL INTERVENTION REQUIRED"
     })
 
+@app.route("/api/residents", methods=["GET"])
+def get_residents():
+    csv_path = os.path.join(BASE_DIR, "vehicle_data.csv")
+    if os.path.exists(csv_path):
+        data = pd.read_csv(csv_path)
+        # Convert NaN values to empty strings or handle appropriately
+        data = data.fillna("N/A")
+        residents = data.to_dict(orient="records")
+        return jsonify(residents)
+    return jsonify([])
+
+@app.route("/api/residents", methods=["POST"])
+def add_resident():
+    new_data = request.json
+    csv_path = os.path.join(BASE_DIR, "vehicle_data.csv")
+    
+    # Required fields check
+    required = ["number", "owner", "vehicle", "city"]
+    if not all(k in new_data for k in required):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    if os.path.exists(csv_path):
+        data = pd.read_csv(csv_path)
+        # Check if plate already exists
+        if new_data["number"] in data["number"].values:
+            return jsonify({"error": "Vehicle already registered"}), 400
+        
+        new_row = pd.DataFrame([new_data])
+        data = pd.concat([data, new_row], ignore_index=True)
+        data.to_csv(csv_path, index=False)
+    else:
+        # Create new CSV if it doesn't exist
+        pd.DataFrame([new_data]).to_csv(csv_path, index=False)
+        
+    return jsonify({"message": "Resident added successfully"}), 201
+
 @app.route("/", methods=["GET","POST"])
 def index():
 
