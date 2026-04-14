@@ -258,13 +258,17 @@ def api_recognize():
             owner = match.iloc[0]["owner"]
             vehicle = match.iloc[0]["vehicle"]
             city = match.iloc[0]["city"]
+            status = "success"
+        else:
+            status = "denied"
 
     return jsonify({
         "plate": plate,
         "owner": owner,
         "vehicle": vehicle,
         "city": city,
-        "status": "success"
+        "status": status,
+        "message": "ACCESS GRANTED - OPENING GATE" if status == "success" else "ACCESS DENIED - MANUAL INTERVENTION REQUIRED"
     })
 
 @app.route("/", methods=["GET","POST"])
